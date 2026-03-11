@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 
-use odoopod_core::instance::{self, InstanceConfig};
+use odoopod_core::instance::{InstanceConfig};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -26,10 +26,10 @@ enum Commands {
     Create {
         name: String,
         odoo_version: String,
-        python_version: String,
-        pg_version: String,
-        http_port: u16,
-        longpolling_port: u16,
+        python_version: Option<String>,
+        pg_version: Option<String>,
+        http_port: Option<u16>,
+        longpolling_port: Option<u16>,
     },
     Start {
         name: String,
@@ -71,21 +71,49 @@ async fn main() {
     // matches just as you would the top level cmd
     match &cli.command {
         Commands::Create { name, odoo_version, python_version, pg_version, http_port, longpolling_port } => {
-            println!("Creating instance: {}", name);
-            println!("Odoo version: {}", odoo_version);
-            println!("Python version: {}", python_version);
-            println!("PostgreSQL version: {}", pg_version);
-            println!("HTTP port: {}", http_port);
-            println!("Longpolling port: {}", longpolling_port);
+            // Match python, postgres versions based on odoo version from 16.0 to 19.0
+            if python_version.is_none() {
+                let python_version = Some(match odoo_version.as_str() {
+                    "16.0" => "3.10",
+                    "17.0" => "3.11",
+                    "18.0" => "3.12",
+                    "19.0" => "3.12",
+                    _ => {
+                        println!("Unsupported Odoo version: {}. Supported versions are 16.0, 17.0, 18.0 and 19.0", odoo_version);
+                        return;
+                    }
+                }.to_string());
+            }
+            if pg_version.is_none() {
+                 let pg_version = Some(match odoo_version.as_str() {
+                    "16.0" => "14",
+                    "17.0" => "15",
+                    "18.0" => "16",
+                    "19.0" => "17",
+                    _ => {
+                        println!("Unsupported Odoo version: {}. Supported versions are 16.0, 17.0, 18.0 and 19.0", odoo_version);
+                        return;
+                    }
+                }.to_string());
+            }
+            //Get available ports for odoo and longpoling
+            let available_odoo_ports = odoo_pod.available_odoo_ports();
+            let available_longpolling_ports = odoo_pod.available_longpolling_ports();
+            if http_port.is_none() {
+                let http_port = &Some(*available_odoo_ports.first().expect("No available HTTP ports"));
+            }
+            if longpolling_port.is_none() {
+                let longpolling_port = &Some(*available_longpolling_ports.first().expect("No available longpolling ports"));
+            }
             // Get current path
             let current_path = std::env::current_dir().unwrap();
             let config = InstanceConfig {
                 name: name.clone(),
                 odoo_version: odoo_version.clone(),
-                python_version: python_version.clone(),
-                pg_version: pg_version.clone(),
-                http_port: *http_port,
-                longpolling_port: *longpolling_port,
+                python_version: python_version.clone().unwrap(),
+                pg_version: pg_version.clone().unwrap(),
+                http_port: http_port.unwrap(),
+                longpolling_port: longpolling_port.unwrap(),
                 path: current_path.join(name.clone()),
             };
             let odoo_instance = odoo_pod.create_instance(config).await.unwrap();
