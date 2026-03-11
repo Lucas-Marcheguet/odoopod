@@ -11,6 +11,7 @@ use crate::components::postgres::PostgresInstance;
 pub struct InstanceConfig {
     pub name: String,
     pub odoo_version: String,    // "17.0"
+    pub community: bool,        // true for community, false for enterprise
     pub python_version: String,  // "3.10"
     pub pg_version: String,      // "15"
     pub http_port: u16,
@@ -63,7 +64,7 @@ impl OdooInstance<Configured> {
             std::fs::create_dir_all(self.odoo_path.clone()).unwrap();
             crate::components::odoo::Odoo::download_extract_source_code(
                 self.config.odoo_version.clone(),
-                false,
+                !self.config.community,
                 self.odoo_path.clone(),
             ).await
                 .map_err(|e| OdooPodError::SetupFailed(e.to_string()))?;
@@ -164,7 +165,8 @@ impl OdooInstance<Ready> {
             .spawn()
             .map_err(|e| OdooPodError::StartInstanceError(e.to_string()))?;
 
-        tracing::info!("Instance '{}' started — logs: {}", self.config.name, log_path.display());
+        println!("Instance '{}' started — logs: {}", self.config.name, log_path.display());
+        println!("Odoo will be available at http://localhost:{} after it finishes booting.", self.config.http_port);
         Ok(OdooInstance { config: self.config, uv: self.uv, postgres: self.postgres, child: Some(child), _state: PhantomData, odoo_path: self.odoo_path })
     }
 

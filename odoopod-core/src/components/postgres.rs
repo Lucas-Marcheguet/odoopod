@@ -19,7 +19,6 @@ pub struct PostgresManager {
 }
 
 pub struct PostgresInstance {
-    version: String,
     server: Mutex<PgEmbed>,
 }
 
@@ -49,9 +48,9 @@ impl PostgresInstance {
                 panic!("Failed to initialize PostgreSQL: {}", e);
             },
         };
-        postgres.setup().await;
-        postgres.start_db().await;
-        PostgresInstance { version, server: Mutex::new(postgres) }
+        let _ = postgres.setup().await;
+        let _ = postgres.start_db().await;
+        PostgresInstance { server: Mutex::new(postgres) }
     }
 
     pub async fn ensure_database(&self, db_name: &str) -> Result<(), OdooPodError> {
@@ -70,25 +69,25 @@ impl PostgresInstance {
 
     pub async fn add_database(&self, db_name: &str) -> Result<(), OdooPodError> {
         let server = self.server.lock().await;
-        server.create_database(db_name).await;
+        let _ = server.create_database(db_name).await;
         Ok(())
     }
 
     pub async fn remove_database(&self, db_name: &str) -> Result<(), OdooPodError> {
         let server = self.server.lock().await;
-        server.drop_database(db_name).await;
+        let _ = server.drop_database(db_name).await;
         Ok(())
     }
 
     pub async fn start(&self) -> Result<(), OdooPodError> {
         let mut server = self.server.lock().await;
-        server.start_db().await;
+        let _ = server.start_db().await;
         Ok(())
     }
 
     pub async fn stop(&self) -> Result<(), OdooPodError> {
         let mut server = self.server.lock().await;
-        server.stop_db().await;
+        let _ = server.stop_db().await;
         Ok(())
     }
 }

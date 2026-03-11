@@ -5,6 +5,19 @@ impl Odoo {
     pub async fn download_extract_source_code(version: String, _is_enterprise: bool, destination: std::path::PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         println!("Downloading Odoo source code for version {}...", version);
         let bytes = Odoo::download_source_code(version.clone(), _is_enterprise).await.unwrap();
+        if _is_enterprise {
+            // run git clone --depth 1 --branch <version> odoo/enterprise.git commande
+            println!("Cloning Odoo Enterprise source code for version {}...", version);
+            let url = format!("git@github.com:odoo/enterprise.git");
+            let status = std::process::Command::new("git")
+                .args(["clone", "--depth", "1", "--branch", &version, &url, destination.join("addons").to_str().unwrap()])
+                .status()
+                .expect("Failed to execute git command");
+            if !status.success() {
+                return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "Failed to clone Odoo Enterprise repository")));
+            }
+            println!("Odoo Enterprise source code successfully cloned to the destination path {}", destination.display());
+        }
         println!("Extracting Odoo source code for version {}...", version);
         Odoo::extract_tarball(bytes, destination.clone()).await?;
         println!("Odoo source code successfully extracted to the destination path {}", destination.display());

@@ -26,6 +26,7 @@ enum Commands {
     Create {
         name: String,
         odoo_version: String,
+        community: Option<bool>,
         python_version: Option<String>,
         pg_version: Option<String>,
         http_port: Option<u16>,
@@ -70,7 +71,7 @@ async fn main() {
     // You can check for the existence of subcommands, and if found use their
     // matches just as you would the top level cmd
     match &cli.command {
-        Commands::Create { name, odoo_version, python_version, pg_version, http_port, longpolling_port } => {
+        Commands::Create { name, odoo_version, community, python_version, pg_version, http_port, longpolling_port } => {
             // Match python, postgres versions based on odoo version from 16.0 to 19.0
             let python_version = python_version.clone().or_else(|| {
                 Some(match odoo_version.as_str() {
@@ -104,6 +105,7 @@ async fn main() {
             let config = InstanceConfig {
                 name: name.clone(),
                 odoo_version: odoo_version.clone(),
+                community: community.unwrap_or(false),
                 python_version: python_version.unwrap_or_default(),
                 pg_version: pg_version.unwrap_or_default(),
                 http_port: http_port.expect("No available HTTP ports"),
