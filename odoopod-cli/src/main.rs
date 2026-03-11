@@ -72,49 +72,43 @@ async fn main() {
     match &cli.command {
         Commands::Create { name, odoo_version, python_version, pg_version, http_port, longpolling_port } => {
             // Match python, postgres versions based on odoo version from 16.0 to 19.0
-            if python_version.is_none() {
-                let python_version = Some(match odoo_version.as_str() {
+            let python_version = python_version.clone().or_else(|| {
+                Some(match odoo_version.as_str() {
                     "16.0" => "3.10",
                     "17.0" => "3.11",
                     "18.0" => "3.12",
                     "19.0" => "3.12",
                     _ => {
-                        println!("Unsupported Odoo version: {}. Supported versions are 16.0, 17.0, 18.0 and 19.0", odoo_version);
-                        return;
+                        println!("Unsupported Odoo version: {}", odoo_version);
+                        return None;
                     }
-                }.to_string());
-            }
-            if pg_version.is_none() {
-                 let pg_version = Some(match odoo_version.as_str() {
+                }.to_string())
+            });
+
+            let pg_version = pg_version.clone().or_else(|| {
+                Some(match odoo_version.as_str() {
                     "16.0" => "14",
                     "17.0" => "15",
                     "18.0" => "16",
                     "19.0" => "17",
                     _ => {
-                        println!("Unsupported Odoo version: {}. Supported versions are 16.0, 17.0, 18.0 and 19.0", odoo_version);
-                        return;
+                        println!("Unsupported Odoo version: {}", odoo_version);
+                        return None;
                     }
-                }.to_string());
-            }
-            //Get available ports for odoo and longpoling
-            let available_odoo_ports = odoo_pod.available_odoo_ports();
-            let available_longpolling_ports = odoo_pod.available_longpolling_ports();
-            if http_port.is_none() {
-                let http_port = &Some(*available_odoo_ports.first().expect("No available HTTP ports"));
-            }
-            if longpolling_port.is_none() {
-                let longpolling_port = &Some(*available_longpolling_ports.first().expect("No available longpolling ports"));
-            }
-            // Get current path
-            let current_path = std::env::current_dir().unwrap();
+                }.to_string())
+            });
+
+            let http_port = http_port.or_else(|| odoo_pod.available_odoo_ports().first().copied());
+            let longpolling_port = longpolling_port.or_else(|| odoo_pod.available_longpolling_ports().first().copied());
+
             let config = InstanceConfig {
                 name: name.clone(),
                 odoo_version: odoo_version.clone(),
-                python_version: python_version.clone().unwrap(),
-                pg_version: pg_version.clone().unwrap(),
-                http_port: http_port.unwrap(),
-                longpolling_port: longpolling_port.unwrap(),
-                path: current_path.join(name.clone()),
+                python_version: python_version.unwrap_or_default(),
+                pg_version: pg_version.unwrap_or_default(),
+                http_port: http_port.expect("No available HTTP ports"),
+                longpolling_port: longpolling_port.expect("No available longpolling ports"),
+                path: std::env::current_dir().unwrap().join(name),
             };
             let odoo_instance = odoo_pod.create_instance(config).await.unwrap();
             let _ = odoo_instance.setup().await.unwrap();
