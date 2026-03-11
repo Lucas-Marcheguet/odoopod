@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    name: Build for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset_name: odoopod-x86_64-unknown-linux-gnu
+          - os: windows-latest
+            asset_name: odoopod-x86_64-pc-windows-msvc.exe
+          - os: macos-latest # Utilise macos-latest pour une compatibilité standard
+            asset_name: odoopod-x86_64-apple-darwin
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Build release
+      run: cargo build --release
+
+    - name: Prepare Artifacts (Linux/macOS)
+      if: matrix.os != 'windows-latest'
+      run: |
+        cd target/release
+        mv odoopod ${{ matrix.asset_name }}
+        shasum -a 256 ${{ matrix.asset_name }} > ${{ matrix.asset_name }}.sha256
+
+    - name: Prepare Artifacts (Windows)
+      if: matrix.os == 'windows-latest'
+      shell: pwsh
+      run: |
+        cd target/release
+        Rename-Item -Path "odoopod.exe" -NewName "${{ matrix.matrix.asset_name }}"
+        Get-FileHash "${{ matrix.asset_name }}" -Algorithm SHA256 | Format-List | Out-File -FilePath "${{ matrix.asset_name }}.sha256"
+
+    - name: Upload to Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          target/release/${{ matrix.asset_name }}
+          target/release/${{ matrix.asset_name }}.sha256
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
