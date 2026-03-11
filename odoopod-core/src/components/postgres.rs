@@ -1,14 +1,13 @@
-use std::{collections::HashMap, hash::Hash, sync::Arc};
+use std::{sync::Arc};
 use pg_embed::postgres::{PgSettings, PgEmbed};
 use pg_embed::pg_fetch::{PgFetchSettings, PG_V14, PG_V15, PG_V16, PG_V17, PostgresVersion};
 use pg_embed::pg_enums::PgAuthMethod;
 use std::time::Duration;
-use std::path::PathBuf;
+use tokio::sync::Mutex;
 use crate::error::OdooPodError;
 
 pub struct PostgresSettings {
     pub version: String,
-    pub host: String,
     pub username: String,
     pub password: String,
     pub data_dir: std::path::PathBuf,
@@ -21,7 +20,7 @@ pub struct PostgresManager {
 
 pub struct PostgresInstance {
     version: String,
-    server: PgEmbed,
+    server: Mutex<PgEmbed>,
 }
 
 fn get_pg_version(version: &str) -> PostgresVersion {
@@ -52,17 +51,15 @@ impl PostgresInstance {
         };
         postgres.setup().await;
         postgres.start_db().await;
-        PostgresInstance { version, server: postgres }
-    }
-
-    pub fn server_mut(&mut self) -> &mut PgEmbed {
-        &mut self.server
+        PostgresInstance { version, server: Mutex::new(postgres) }
     }
 
     pub async fn ensure_database(&self, db_name: &str) -> Result<(), OdooPodError> {
-        match self.server.database_exists(db_name).await {
+        let server = self.server.lock().await;
+        match server.database_exists(db_name).await {
             Ok(exists) => {
                 if !exists {
+                    drop(server);
                     self.add_database(db_name).await?;
                 }
             }
@@ -72,22 +69,26 @@ impl PostgresInstance {
     }
 
     pub async fn add_database(&self, db_name: &str) -> Result<(), OdooPodError> {
-       self.server.create_database(db_name).await;
+        let server = self.server.lock().await;
+        server.create_database(db_name).await;
         Ok(())
     }
 
     pub async fn remove_database(&self, db_name: &str) -> Result<(), OdooPodError> {
-        self.server.drop_database(db_name).await;
+        let server = self.server.lock().await;
+        server.drop_database(db_name).await;
         Ok(())
     }
 
-    pub async fn start(&mut self) -> Result<(), OdooPodError> {
-        self.server.start_db().await;
+    pub async fn start(&self) -> Result<(), OdooPodError> {
+        let mut server = self.server.lock().await;
+        server.start_db().await;
         Ok(())
     }
 
-    pub async fn stop(&mut self) -> Result<(), OdooPodError> {
-        self.server.stop_db().await;
+    pub async fn stop(&self) -> Result<(), OdooPodError> {
+        let mut server = self.server.lock().await;
+        server.stop_db().await;
         Ok(())
     }
 }
@@ -97,17 +98,16 @@ impl PostgresManager {
         PostgresManager { postgres_servers: Vec::new() }
     }
 
+    pub async fn available_ports(&self) -> Vec<u16> {
+        let mut used_ports = Vec::new();
+        for server in &self.postgres_servers {
+            let port = server.server.lock().await.pg_settings.port;
+            used_ports.push(port);
+        }
+        (5432..6000).filter(|port| !used_ports.contains(port)).collect()
+    }
+
     pub async fn new_postgres_server(&mut self, settings: PostgresSettings) -> Result<Arc<PostgresInstance>, OdooPodError> {
-        // let pg_settings = SettingsBuilder::new()
-        //     .version(VersionReq::parse(&settings.version).unwrap())
-        //     .host(settings.host)
-        //     .port(settings.port)
-        //     .username(settings.username)
-        //     .password(settings.password)
-        //     .data_dir(settings.data_dir)
-        //     .temporary(false)
-        //     .configuration(pg_config)
-        //     .build();
         let pg_settings = PgSettings {
             database_dir: settings.data_dir.clone(),
             port: settings.port,
@@ -125,13 +125,8 @@ impl PostgresManager {
 
     pub async fn stop_all_servers(&self) -> Result<(), OdooPodError> {
         for server in &self.postgres_servers {
-            let mut server = Arc::clone(server);
             server.stop().await.map_err(|e| OdooPodError::StopPostgresServerError(e.to_string()))?;
         }
         Ok(())
-    }
-
-    pub fn get_postgres_server(&self, version: &str) -> Option<Arc<PostgresInstance>> {
-        self.postgres_servers.iter().find(|server| server.version == version).map(Arc::clone)
     }
 }

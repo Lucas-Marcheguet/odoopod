@@ -26,4 +26,6 @@ pub enum OdooPodError {
     InstanceStatusError,
     #[error("Failed to check PostgreSQL database existence: {0}")]
     CheckDatabaseError(String),
+    #[error("No available port for PostgreSQL: {0}")]
+    NoAvailablePort(String),
 }

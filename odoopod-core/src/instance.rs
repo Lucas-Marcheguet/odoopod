@@ -53,9 +53,13 @@ impl OdooInstance<Configured> {
         Ok(())
     }
 
+    fn check_odoo_installed(&self, odoo_path: &std::path::PathBuf) -> bool {
+        odoo_path.join("odoo-bin").exists()
+    }
+
     async fn ensure_source(&self) -> Result<(), OdooPodError> {
         // Check odoo version, download it if not in cache, and extract it to the cache folder
-        if !self.odoo_path.exists() {
+        if !self.odoo_path.exists() || !self.check_odoo_installed(&self.odoo_path) {
             std::fs::create_dir_all(self.odoo_path.clone()).unwrap();
             crate::components::odoo::Odoo::download_extract_source_code(
                 self.config.odoo_version.clone(),
@@ -75,15 +79,11 @@ impl OdooInstance<Configured> {
             .map_err(|e| OdooPodError::InstallRequirementsError(e.to_string()))
     }
 
-    fn get_db_name(&self) -> String {
-        format!("odoo_{}", self.config.name)
-    }
-
     async fn ensure_postgres(&self) -> Result<(), OdooPodError> {
         // TODO - Check if the database for this instance exists, and if not, create it.
-        let db_name = self.get_db_name();
-        self.postgres.ensure_database(&db_name).await
-            .map_err(|e| OdooPodError::SetupFailed(e.to_string()))?;
+        // let db_name = self.get_db_name();
+        // self.postgres.ensure_database(&db_name).await
+        //     .map_err(|e| OdooPodError::SetupFailed(e.to_string()))?;
         Ok(())
     }
 
@@ -166,6 +166,17 @@ impl OdooInstance<Ready> {
 
         tracing::info!("Instance '{}' started — logs: {}", self.config.name, log_path.display());
         Ok(OdooInstance { config: self.config, uv: self.uv, postgres: self.postgres, child: Some(child), _state: PhantomData, odoo_path: self.odoo_path })
+    }
+
+    pub async fn stop(self) -> Result<OdooInstance<Ready>, OdooPodError> {
+        if let Some(mut child) = self.child {
+            child.kill().await
+                .map_err(|e| OdooPodError::StopInstanceError(e.to_string()))?;
+            child.wait().await
+                .map_err(|e| OdooPodError::StopInstanceError(e.to_string()))?;
+        }
+        tracing::info!("Instance '{}' stopped.", self.config.name);
+        Ok(OdooInstance { config: self.config, uv: self.uv, postgres: self.postgres, child: None, _state: PhantomData, odoo_path: self.odoo_path })
     }
 
 }

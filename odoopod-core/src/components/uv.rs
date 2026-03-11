@@ -22,6 +22,9 @@ impl UvInstaller {
             .await?
             .bytes()
             .await?;
+        if !uv_path.exists() {
+            std::fs::create_dir_all(&uv_path)?;
+        }
         println!("Downloaded uv tarball from {}, extracting...", url);
         let tar = flate2::read::GzDecoder::new(&bytes[..]);
         let mut archive = tar::Archive::new(tar);

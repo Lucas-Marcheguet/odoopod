@@ -101,14 +101,34 @@ impl OdooPod {
         std::fs::write(self.root_path.join("instances.yaml"), yaml).unwrap();
     }
 
-    async fn ensure_postgres_server(&mut self, settings: PostgresSettings) -> Result<Arc<PostgresInstance>, OdooPodError> {
-        let existing_server = self.components_manager.postgres().get_postgres_server(&settings.version);
-        if existing_server.is_some() {
-            return Ok(existing_server.expect("postgres server should be set"));
-        }
-        // We need to create a new Postgres server for this version
-        let new_server = self.components_manager.postgres_mut().new_postgres_server(settings).await?;
-        Ok(new_server)
+    async fn ensure_postgres_server(&mut self, config: InstanceConfig) -> Result<Arc<PostgresInstance>, OdooPodError> {
+        let settings = PostgresSettings {
+            version: config.pg_version.clone(),
+            username: "odoo".to_string(),
+            port: self.available_postgres_ports().await.into_iter().next().ok_or_else(|| OdooPodError::NoAvailablePort("No available port for Postgres".to_string()))?,
+            password: "odoo".to_string(),
+            data_dir: self.root_path.join(format!("postgres_data/{}", config.pg_version.clone())),
+        };
+        let server = self.components_manager.postgres_mut().new_postgres_server(settings).await?;
+        Ok(server)
+    }
+
+    pub fn available_odoo_ports(&self) -> Vec<u16> {
+        let used_ports: Vec<u16> = self.running_instances.iter()
+            .map(|instance| instance.config.http_port)
+            .collect();
+        (8000..9000).filter(|port| !used_ports.contains(port)).collect()
+    }
+
+    pub fn available_longpolling_ports(&self) -> Vec<u16> {
+        let used_ports: Vec<u16> = self.running_instances.iter()
+            .map(|instance| instance.config.longpolling_port)
+            .collect();
+        (9000..10000).filter(|port| !used_ports.contains(port)).collect()
+    }
+
+    pub async fn available_postgres_ports(&self) -> Vec<u16> {
+        self.components_manager.postgres().available_ports().await
     }
 
     /// Crée et enregistre une nouvelle instance.
@@ -117,20 +137,30 @@ impl OdooPod {
         self.known_configs.push(config.clone());
         self.persist_configs();
 
-        let settings = PostgresSettings {
-            version: config.pg_version.clone(),
-            host: "127.0.0.1".to_string(),
-            username: "odoo".to_string(),
-            port: 5432,
-            password: "odoo".to_string(),
-            data_dir: self.root_path.join(format!("postgres_data/{}", config.pg_version.clone())),
-        };
-        let postgres_server = self.ensure_postgres_server(settings).await.unwrap();
+        let postgres_server = self.ensure_postgres_server(config.clone()).await.unwrap();
         let odoo_path = self.root_path.join("sources").join(format!("odoo_{}", config.odoo_version.clone()));
         if !odoo_path.exists() {
             std::fs::create_dir_all(&odoo_path).unwrap();
         }
         Ok(instance::OdooInstance::new(config, self.components_manager.uv(), postgres_server, odoo_path))
+    }
+
+    pub async fn get_instance(&mut self, name: &str) -> Option<OdooInstance<Ready>> {
+        let config = self.known_configs.iter()
+            .find(|config| config.name == name)
+            .cloned();
+
+        if let Some(config) = config {
+            let pg_server = &self.ensure_postgres_server(config.clone()).await.unwrap();
+            let instance = OdooInstance::from_config(
+                config.clone(),
+                self.components_manager.uv(),
+                pg_server.clone(),
+                self.root_path.join("sources").join(format!("odoo_{}", config.odoo_version.clone())),
+            );
+            return Some(instance);
+        }
+        None
     }
 
     pub async fn stop_all_instances(&mut self) -> Result<(), OdooPodError> {
