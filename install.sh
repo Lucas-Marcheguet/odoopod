@@ -22,6 +22,7 @@ echo "🌐 Récupération de la dernière version..."
 LATEST_RELEASE=$(curl -s "https://api.github.com/repos/${REPO}/releases/latest")
 TAG=$(echo "${LATEST_RELEASE}" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
 DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/${BINARY_NAME}-${ASSET_SUFFIX}"
+CHECKSUM_FILE="${BINARY_NAME}.sha256"
 
 if [ -z "$TAG" ]; then
   echo "❌ Impossible de trouver la dernière release."
@@ -30,24 +31,35 @@ fi
 
 echo "🚀 Téléchargement de ${BINARY_NAME} ${TAG}..."
 curl -L -o "${BINARY_NAME}" "${DOWNLOAD_URL}"
-curl -L -o "${BINARY_NAME}.sha256" "${DOWNLOAD_URL}.sha256"
+
+if ! curl -fL -o "${CHECKSUM_FILE}" "${DOWNLOAD_URL}.sha256"; then
+  echo "ℹ️ Fichier .sha256 introuvable, tentative avec .sha..."
+  curl -fL -o "${CHECKSUM_FILE}" "${DOWNLOAD_URL}.sha"
+fi
 
 echo "🛡️ Vérification du checksum..."
+EXPECTED_HASH=$(awk '{print $1}' "${CHECKSUM_FILE}")
+
+if [ -z "${EXPECTED_HASH}" ]; then
+  echo "❌ Checksum invalide ou introuvable dans ${CHECKSUM_FILE}"
+  exit 1
+fi
+
 if [ "${OS}" = "darwin" ]; then
-  # macOS utilise shasum
-  shasum -a 256 -c "${BINARY_NAME}.sha256"
+  ACTUAL_HASH=$(shasum -a 256 "${BINARY_NAME}" | awk '{print $1}')
 else
-  # Linux utilise sha256sum (format de sortie différent souvent requis)
-  # On extrait le hash du fichier généré par le workflow
-  EXPECTED_HASH=$(awk '{print $1}' "${BINARY_NAME}.sha256")
-  echo "${EXPECTED_HASH}  ${BINARY_NAME}" | sha256sum -c -
+  ACTUAL_HASH=$(sha256sum "${BINARY_NAME}" | awk '{print $1}')
+fi
+
+if [ "${EXPECTED_HASH}" != "${ACTUAL_HASH}" ]; then
+  echo "❌ Checksum invalide: attendu ${EXPECTED_HASH}, obtenu ${ACTUAL_HASH}"
+  exit 1
 fi
 
 echo "📦 Installation dans ${INSTALL_DIR}..."
 chmod +x "${BINARY_NAME}"
 sudo mv "${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
 
-# Nettoyage
-rm "${BINARY_NAME}.sha256"
+rm "${CHECKSUM_FILE}"
 
 echo "✅ Installation terminée ! Tapez '${BINARY_NAME}' pour commencer."
