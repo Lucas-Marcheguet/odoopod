@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build-and-release:
     name: Build for ${{ matrix.os }}
@@ -17,7 +20,7 @@ jobs:
           - os: windows-latest
             asset_name: odoopod-x86_64-pc-windows-msvc.exe
           - os: macos-latest # Utilise macos-latest pour une compatibilité standard
-            asset_name: odoopod-x86_64-apple-darwin
+            asset_name: odoopod-universal-apple-darwin
 
     steps:
     - name: Checkout code
@@ -41,7 +44,7 @@ jobs:
       shell: pwsh
       run: |
         cd target/release
-        Rename-Item -Path "odoopod.exe" -NewName "${{ matrix.matrix.asset_name }}"
+        Rename-Item -Path "odoopod.exe" -NewName "${{ matrix.asset_name }}"
         Get-FileHash "${{ matrix.asset_name }}" -Algorithm SHA256 | Format-List | Out-File -FilePath "${{ matrix.asset_name }}.sha256"
 
     - name: Upload to Release
